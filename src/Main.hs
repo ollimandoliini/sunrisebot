@@ -14,6 +14,7 @@ import Prelude hiding (unlines)
 
 import Data.Aeson (FromJSON, ToJSON)
 import Network.HTTP.Req (
+  NoReqBody (NoReqBody),
   POST (POST),
   ReqBodyJson (ReqBodyJson),
   defaultHttpConfig,
@@ -55,7 +56,7 @@ getDaytimeData (lat, lng) =
           , "formatted" =: (0 :: Int)
           , "date" =: ("today" :: Text)
           ]
-   in runReq defaultHttpConfig $ responseBody <$> req POST url (ReqBodyJson ()) jsonResponse options
+   in runReq defaultHttpConfig $ responseBody <$> req POST url NoReqBody jsonResponse options
 
 getDayLength :: DaytimeDataResults -> NominalDiffTime
 getDayLength DaytimeDataResults{..} = diffUTCTime sunset sunrise
