@@ -6,13 +6,27 @@
 module Main (main) where
 
 import Control.Monad (void)
+import Data.Aeson (FromJSON, ToJSON)
 import Data.Foldable (for_)
 import Data.Text (Text, pack, unlines)
-import Data.Time (NominalDiffTime, TimeZone, UTCTime, defaultTimeLocale, diffUTCTime, formatTime, utcToZonedTime)
+import Data.Time (
+  Day,
+  MonthOfYear,
+  NominalDiffTime,
+  TimeZone (TimeZone),
+  UTCTime (utctDay),
+  Year,
+  defaultTimeLocale,
+  diffUTCTime,
+  formatTime,
+  fromGregorian,
+  getCurrentTime,
+  gregorianMonthLength,
+  toGregorian,
+  utcToZonedTime,
+ )
+import Data.Time.Calendar.WeekDate (toWeekDate)
 import GHC.Generics (Generic)
-import Prelude hiding (unlines)
-
-import Data.Aeson (FromJSON, ToJSON)
 import Network.HTTP.Req (
   NoReqBody (NoReqBody),
   POST (POST),
@@ -28,6 +42,7 @@ import Network.HTTP.Req (
   (=:),
  )
 import System.Environment (getEnv)
+import Prelude hiding (unlines)
 
 data DaytimeDataResults = DaytimeDataResults
   { sunrise :: UTCTime
@@ -36,6 +51,7 @@ data DaytimeDataResults = DaytimeDataResults
   deriving (Show, Generic)
 
 instance FromJSON DaytimeDataResults
+
 instance ToJSON DaytimeDataResults
 
 newtype DaytimeData = DaytimeData
@@ -44,6 +60,7 @@ newtype DaytimeData = DaytimeData
   deriving (Show, Generic)
 
 instance FromJSON DaytimeData
+
 instance ToJSON DaytimeData
 
 getDaytimeData :: (Double, Double) -> IO DaytimeData
@@ -59,7 +76,7 @@ getDaytimeData (lat, lng) =
    in runReq defaultHttpConfig $ responseBody <$> req POST url NoReqBody jsonResponse options
 
 getDayLength :: DaytimeDataResults -> NominalDiffTime
-getDayLength DaytimeDataResults{..} = diffUTCTime sunset sunrise
+getDayLength DaytimeDataResults {..} = diffUTCTime sunset sunrise
 
 data TelegramSendMessageBody = TelegramSendMessageBody
   { chat_id :: Text
@@ -100,20 +117,45 @@ data Config = Config
   }
 
 readConfig :: IO Config
-readConfig = Config <$> getEnvText "BOT_KEY" <*> getEnvText "CHAT_ID"
- where
-  getEnvText key = pack <$> getEnv key
+readConfig = do
+  botKey <- getEnvText "BOT_KEY"
+  chatId <- getEnvText "CHAT_ID"
+  pure (Config botKey chatId)
+  where
+    getEnvText key = pack <$> getEnv key
+
+isDaylightSavingTime :: Day -> Bool
+isDaylightSavingTime day =
+  let (year, _, _) = toGregorian day
+      lastSundayOfMarch = lastSundayOfMonth year 3
+      lastSundayOfOctober = lastSundayOfMonth year 10
+   in day > lastSundayOfMarch && day < lastSundayOfOctober
+
+lastSundayOfMonth :: Year -> MonthOfYear -> Day
+lastSundayOfMonth year month = maximum sundaysInMonth
+  where
+    monthDays = [fromGregorian year 3 day | day <- [1 .. gregorianMonthLength year month]]
+    monthDaysWithWeekDayNumbers =
+      [ let (_, _, weekDayNumber) = toWeekDate day
+         in (day, weekDayNumber)
+      | day <- monthDays
+      ]
+    sundaysInMonth = fst <$> filter (\(_, weekDayNumber) -> weekDayNumber == 7) monthDaysWithWeekDayNumbers
 
 main :: IO ()
 main = do
-  Config{telegramBotKey, chatId} <- readConfig
+  Config {telegramBotKey, chatId} <- readConfig
+  currentDay <- utctDay <$> getCurrentTime
+  let timeZone = if isDaylightSavingTime currentDay then timeZoneEEST else timeZoneEST
+
   for_ cities $ \(cityName, coords) -> do
     DaytimeData results <- getDaytimeData coords
-    let localTimeZone = read "+0200" -- TODO: Check current timezone
-        msg = daytimeDataMessage cityName localTimeZone results
+    let msg = daytimeDataMessage cityName timeZone results
     sendTelegramMessage telegramBotKey chatId msg
- where
-  cities =
-    [ ("Tampere", (61.5007833595595, 23.81062154454931))
-    , ("Helsinki", (60.19079404209167, 24.96228363735172))
-    ]
+  where
+    cities =
+      [ ("Tampere", (61.5007833595595, 23.81062154454931))
+      , ("Helsinki", (60.19079404209167, 24.96228363735172))
+      ]
+    timeZoneEST = TimeZone 120 False "EST"
+    timeZoneEEST = TimeZone 180 True "EEST"
