@@ -107,7 +107,7 @@ daytimeDataMessage cityName timeZone daytimeDataResults =
           ( pack
               <$> [ "Sunrise: " ++ formatTime defaultTimeLocale "%H:%M:%S" (utcToZonedTime timeZone $ sunrise daytimeDataResults)
                   , "Sunset: " ++ formatTime defaultTimeLocale "%H:%M:%S" (utcToZonedTime timeZone $ sunset daytimeDataResults)
-                  , "Length: " ++ formatTime defaultTimeLocale "%H:%M:%S" dayLength
+                  , "Length: " ++ formatTime defaultTimeLocale "%0H:%0M:%0S" dayLength
                   ]
           )
 
