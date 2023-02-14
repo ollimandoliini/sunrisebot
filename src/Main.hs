@@ -63,15 +63,21 @@ instance FromJSON DaytimeData
 
 instance ToJSON DaytimeData
 
-getDaytimeData :: (Double, Double) -> IO DaytimeData
-getDaytimeData (lat, lng) =
-  let url = https "api.sunrise-sunset.org" /: "json"
+data SunriseSunsetAPIDate = Today | Yesterday
+
+getDaytimeData :: (Double, Double) -> SunriseSunsetAPIDate -> IO DaytimeData
+getDaytimeData (lat, lng) date =
+  let dateText = case date of
+        Today -> "today"
+        Yesterday -> "yesterday"
+
+      url = https "api.sunrise-sunset.org" /: "json"
       options =
         mconcat
           [ "lat" =: lat
           , "lng" =: lng
           , "formatted" =: (0 :: Int)
-          , "date" =: ("today" :: Text)
+          , "date" =: (dateText :: Text)
           ]
    in runReq defaultHttpConfig $ responseBody <$> req POST url NoReqBody jsonResponse options
 
@@ -98,18 +104,26 @@ sendTelegramMessage botKey chatId msg =
           }
    in void $ runReq defaultHttpConfig $ req POST url (ReqBodyJson body) ignoreResponse mempty
 
-daytimeDataMessage :: Text -> TimeZone -> DaytimeDataResults -> Text
-daytimeDataMessage cityName timeZone daytimeDataResults =
-  let dayLength = getDayLength daytimeDataResults
+daytimeDataMessage :: Text -> TimeZone -> DaytimeDataResults -> DaytimeDataResults -> Text
+daytimeDataMessage cityName timeZone daytimeDataResultsToday daytimeDataResultsYesterday =
+  let dayLengthToday = getDayLength daytimeDataResultsToday
+      dayLengthYesterday = getDayLength daytimeDataResultsYesterday
+      change = dayLengthToday - dayLengthYesterday
    in cityName
         <> "\n"
         <> unlines
           ( pack
-              <$> [ "Sunrise: " ++ formatTime defaultTimeLocale "%H:%M:%S" (utcToZonedTime timeZone $ sunrise daytimeDataResults)
-                  , "Sunset: " ++ formatTime defaultTimeLocale "%H:%M:%S" (utcToZonedTime timeZone $ sunset daytimeDataResults)
-                  , "Length: " ++ formatTime defaultTimeLocale "%0H:%0M:%0S" dayLength
+              <$> [ "Sunrise: " ++ formatTime defaultTimeLocale "%H:%M:%S" (utcToZonedTime timeZone $ sunrise daytimeDataResultsToday)
+                  , "Sunset: " ++ formatTime defaultTimeLocale "%H:%M:%S" (utcToZonedTime timeZone $ sunset daytimeDataResultsToday)
+                  , "Length: " ++ formatTime defaultTimeLocale "%0H:%0M:%0S" dayLengthToday
+                  , "Change: " ++ formatTime defaultTimeLocale (diffSign change : "%0H:%0M:%0S") (abs change)
                   ]
           )
+  where
+    diffSign :: NominalDiffTime -> Char
+    diffSign time
+      | (> 0) time = '+'
+      | otherwise = '-'
 
 data Config = Config
   { telegramBotKey :: Text
@@ -149,8 +163,15 @@ main = do
   let timeZone = if isDaylightSavingTime currentDay then timeZoneEEST else timeZoneEST
 
   for_ cities $ \(cityName, coords) -> do
-    DaytimeData results <- getDaytimeData coords
-    let msg = daytimeDataMessage cityName timeZone results
+    DaytimeData dayTimeDataToday <- getDaytimeData coords Today
+    DaytimeData dayTimeDataYesterday <- getDaytimeData coords Yesterday
+    let msg =
+          daytimeDataMessage
+            cityName
+            timeZone
+            dayTimeDataToday
+            dayTimeDataYesterday
+
     sendTelegramMessage telegramBotKey chatId msg
   where
     cities =
