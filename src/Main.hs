@@ -148,7 +148,7 @@ isDaylightSavingTime day =
 lastSundayOfMonth :: Year -> MonthOfYear -> Day
 lastSundayOfMonth year month = maximum sundaysInMonth
   where
-    monthDays = [fromGregorian year 3 day | day <- [1 .. gregorianMonthLength year month]]
+    monthDays = [fromGregorian year month day | day <- [1 .. gregorianMonthLength year month]]
     monthDaysWithWeekDayNumbers =
       [ let (_, _, weekDayNumber) = toWeekDate day
          in (day, weekDayNumber)
